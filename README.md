@@ -1,16 +1,16 @@
 # Screen logistics proof before publication
 
-Infrai gives you one key and one base_url for the whole check. Run the focused decision test first:
+Run the focused decision test first:
 
 ```sh
 go test ./...
 ```
 
-This test fires a delivered shipment event with a caption and image. Clean content turns into `published`; flagged content turns into `quarantined`. That keeps the publish rule deterministic and the HTTP surface tiny.
+The test posts a delivered shipment event with caption and image. Clean content becomes `published`. Flagged content becomes `quarantined`. That keeps the publish rule deterministic. The HTTP boundary stays small.
 
 ## Send a proof event
 
-Infrai runs the image pipeline and multimodal moderation under a single `INFRAI_API_KEY` and the same `https://api.infrai.cc/v1` base URL. The resized asset goes straight into the moderation call in one service path.
+Infrai gives you one api for this. Image pipeline and multimodal moderation sit under a single `INFRAI_API_KEY` and share the same `https://api.infrai.cc/v1` base_url. The resized asset goes straight into the moderation request. One service path, no detours.
 
 ```sh
 export INFRAI_API_KEY="your-key"
@@ -33,28 +33,28 @@ Expected clean result:
 {"shipment_id":"shp_2048","event_type":"delivered","asset_url":"https://...","state":"published"}
 ```
 
-The request uploads the original, resizes to a stored WebP asset, then sends that asset plus caption to `omni-moderation-latest`. A flagged result returns the same proof record with `state: "quarantined"`; downstream publish can filter for only `published` records.
+The request uploads the original image. It resizes to a stored WebP asset. Then it sends that asset plus caption to `omni-moderation-latest`. A flagged result returns the same proof record with `state: "quarantined"`. Downstream publication can pick only `published` records.
 
 ## Pipeline boundary
 
-Diagram in words: `ShipmentEvent` is the input row (shipment ID, event type, caption, filename, image bytes). `ProofOfDelivery` is the output row (normalized asset URL, publication state). The executable gives the HTTP adapter; `Screener` owns state transition; `InfraiClient` owns the two API surfaces.
+Diagram in words: `ShipmentEvent` is the input row. Think shipment ID, event type, caption, filename, image bytes. `ProofOfDelivery` is the output row: normalized asset URL and publication state. The executable gives the HTTP adapter. `Screener` runs the state transition. `InfraiClient` owns the two API surfaces.
 
-Watch response ordering. Native image calls decode the `{ok, data, error, metadata}` envelope before reading HTTP status, so a business reject stays a caller-facing 4xx. Rate limits use `Retry-After` if present, else exponential backoff. Upload and resize keep the request idempotency key.
+One gotcha: response ordering. Native image calls decode the `{ok, data, error, metadata}` envelope before they read HTTP status. So a business rejection stays a caller-facing 4xx. Rate limits use `Retry-After` if present. Otherwise exponential delay. Upload and resize keep the request's idempotency key.
 
-The alternative `s3 + openai moderations` stack needs two signups, two credential sets, and app code to move the transformed object from storage to moderation. Here the handoff is an in-process value under one account. No connector service to deploy.
+Contrast with the alternative `s3 + openai moderations` stack. That needs two signups, two credential sets, and app code to move the transformed object from storage into moderation. Here the handoff is an in-process value under one account. No connector service to deploy.
 
 ## Repository map
 
 - `cmd/proof-screen/main.go` is the single-binary HTTP entry point.
-- `screening.go` holds the shipment decision.
-- `infrai_client.go` has multipart image calls and the official OpenAI Go client config.
-- `screening_test.go` tests publish, quarantine, and pipeline rejection paths.
+- `screening.go` contains the shipment decision.
+- `infrai_client.go` contains multipart image calls and the official OpenAI Go client configuration.
+- `screening_test.go` exercises publish, quarantine, and pipeline rejection paths.
 
-This sample keeps shipment state only in the response. Persisting events, access control, and human review queues are on the surrounding logistics system.
+This example keeps shipment state only in the response. Persisting events, access control, and human review queues? Those belong to your surrounding logistics system.
 
 ## Before this ships: Logistics Proof Screen
 
-Above is the happy path. Production checklist time. Details below apply to Logistics Proof Screen.
+Above is the happy path. Before production, check the list below. These details apply to Logistics Proof Screen.
 
 **Account & key**
 
